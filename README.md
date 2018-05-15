@@ -1,5 +1,8 @@
 # Agones
 [![GoDoc](https://godoc.org/agones.dev/agones?status.svg)](https://godoc.org/agones.dev/agones)
+[![Go Report Card](https://goreportcard.com/badge/github.com/GoogleCloudPlatform/agones)](https://goreportcard.com/report/github.com/GoogleCloudPlatform/agones)
+[![GitHub release](https://img.shields.io/github/release/GoogleCloudPlatform/agones.svg)](https://github.com/GoogleCloudPlatform/agones/releases)
+[![Follow on Twitter](https://img.shields.io/twitter/follow/agonesdev.svg?style=social&logo=twitter)](https://twitter.com/intent/follow?screen_name=agonesdev)
 
 Agones is a library for hosting, running and scaling [dedicated game servers](https://en.wikipedia.org/wiki/Game_server#Dedicated_server) on [Kubernetes](https://kubernetes.io).
 
@@ -10,16 +13,21 @@ _Agones, is derived from the Greek word agōn which roughly translates to “con
 This software is currently alpha, and subject to change. Not to be used in production systems.
 
 ## Major Features
-- Be able to define a `GameServer` within Kubernetes - either through yaml or the via API
+- Be able to define a `GameServer` within Kubernetes - either through yaml or via the API
 - Manage GameServer lifecycles - including health checking and connection information.
 - Client SDKs for integration with dedicated game servers to work with Agones.
+
+## Why does this project exist?
+For more details on why this project was written, read the 
+[announcement blog post](https://cloudplatform.googleblog.com/2018/03/introducing-Agones-open-source-multiplayer-dedicated-game-server-hosting-built-on-Kubernetes.html).
 
 ## Requirements
 - Kubernetes cluster version 1.9+
     - [Minikube](https://github.com/kubernetes/minikube) and [Google Kubernetes Engine](https://cloud.google.com/kubernetes-engine/) have been tested
     - If you are creating and managing your own Kubernetes cluster, the
-    [MutatingAdmissionWebhook](https://kubernetes.io/docs/admin/admission-controllers/#mutatingadmissionwebhook-beta-in-19)
-    admission controller is required.
+    [MutatingAdmissionWebhook](https://kubernetes.io/docs/admin/admission-controllers/#mutatingadmissionwebhook-beta-in-19), and 
+    [ValidatingAdmissionWebhook](https://kubernetes.io/docs/admin/admission-controllers/#validatingadmissionwebhook-alpha-in-18-beta-in-19)
+    admission controllers are required.
     We also recommend following the
     [recommended set of admission controllers](https://kubernetes.io/docs/admin/admission-controllers/#is-there-a-recommended-set-of-admission-controllers-to-use).
 - Firewall access for the range of ports that Game Servers can be connected to in the cluster.
@@ -35,6 +43,7 @@ Documentation and usage guides on how to develop and host dedicated game servers
 
 ### Quickstarts:
  - [Create a Game Server](./docs/create_gameserver.md)
+ - [Create a Game Server Fleet](./docs/create_fleet.md)
 
 ### Guides
  - [Integrating the Game Server SDK](sdks)
@@ -67,6 +76,9 @@ Please read the [contributing](CONTRIBUTING.md) guide for directions on submitti
 See the tools in the [build](build/README.md) directory for testing and building Agones from source.
 
 Agones is in active development - we would love your help in shaping its future!
+
+## This all sounds great, but can you explain Kubernetes to me?
+[You should totally read this comic, and interactive tutorial](https://cloud.google.com/kubernetes-engine/kubernetes-comic/)
 
 ## Licence
 

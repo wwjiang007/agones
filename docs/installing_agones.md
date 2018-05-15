@@ -17,6 +17,8 @@ In this quickstart, we will create a Kubernetes cluster, and populate it with th
    1. [Starting Minikube](#starting-minikube)
 1. [Enabling creation of RBAC resources](#enabling-creation-of-rbac-resources)
 1. [Installing Agones](#installing-agones)
+   1. [Install with yaml](#install-with-yaml)
+   1. [Install using Helm](#install-using-helm)
    1. [Confirming Agones started successfully](#confirming-agones-started-successfully)
 1. [What's next](#whats-next)
 
@@ -87,7 +89,7 @@ To install `gcloud` and `kubectl`, perform the following steps:
 A [cluster][cluster] consists of at least one *cluster master* machine and multiple worker machines called *nodes*: [Compute Engine virtual machine][vms] instances that run the Kubernetes processes necessary to make them part of the cluster.
 
 ```bash
-gcloud container clusters create [CLUSTER_NAME] --cluster-version=1.9.2-gke.1 \
+gcloud container clusters create [CLUSTER_NAME] --cluster-version=1.9 \
   --no-enable-legacy-authorization \
   --tags=game-server \
   --enable-basic-auth \
@@ -142,6 +144,10 @@ a virtualisation solution, such as [VirtualBox][vb] as well.
 [minikube]: https://github.com/kubernetes/minikube#installation
 [vb]: https://www.virtualbox.org
 
+> Note: due to some [issues with the 0.26.x release](https://github.com/GoogleCloudPlatform/agones/issues/192), 
+we recommend installing version [0.25.2 of minikube](https://github.com/kubernetes/minikube/releases/tag/v0.25.2)
+until they are resolved.
+
 ## Creating an `agones` profile
 
 Let's use a minikube profile for `agones`.
@@ -152,10 +158,11 @@ minikube profile agones
 
 ## Starting Minikube
 
-The following command starts a local minikube cluster via virtualbox.
+The following command starts a local minikube cluster via virtualbox - but this can be
+replaced by a [vm-driver](https://github.com/kubernetes/minikube#requirements) of your choice.
 
 ```bash
-minikube start --kubernetes-version v1.9.0 --vm-driver virtualbox \
+minikube start --kubernetes-version v1.9.4 --vm-driver virtualbox \
   --extra-config=apiserver.Admission.PluginNames=NamespaceLifecycle,LimitRanger,ServiceAccount,PersistentVolumeLabel,DefaultStorageClass,DefaultTolerationSeconds,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ResourceQuota \
   --extra-config=apiserver.Authorization.Mode=RBAC
 ```
@@ -175,11 +182,24 @@ kubectl create clusterrolebinding cluster-admin-binding \
 
 # Installing Agones
 
-Finally, we install Agones to the cluster.
+This will install Agones in your cluster.
+
+## Install with YAML
+
+We can install Agones to the cluster using the
+[install.yaml](https://github.com/GoogleCloudPlatform/agones/blob/release-0.1/install.yaml) file.
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/googlecloudplatform/agones/release-0.1/install.yaml
 ```
+
+## Install using Helm
+
+Also, we can install Agones using [Helm][helm] package manager. If you want more details and configuration
+options see the [Helm installation guide for Agones][agones-install-guide]
+
+[helm]: https://docs.helm.sh
+[agones-install-guide]: ../install/helm/README.md
 
 ## Confirming Agones started successfully
 

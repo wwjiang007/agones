@@ -44,16 +44,22 @@ func main() {
 	if err != nil {
 		log.Fatalf("Could not connect: %v", err)
 	}
-	defer conn.Close()
+
+	defer func() {
+		err = conn.Close()
+		if err != nil {
+			log.Fatalf("Could not close connection: %v", err)
+		}
+	}()
 
 	go func() {
 		b := make([]byte, bufferSize)
 		for {
-			n, err := conn.Read(b)
-			if err != nil {
-				log.Fatalf("Could not read packet: %v", err)
+			n, errRead := conn.Read(b)
+			if errRead != nil {
+				log.Fatalf("Could not read packet: %v", errRead)
 			}
-			log.Printf("Recieved Packet: %s", b[:n])
+			log.Printf("Received Packet: %s", b[:n])
 		}
 	}()
 

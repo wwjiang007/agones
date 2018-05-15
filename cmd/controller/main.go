@@ -25,7 +25,10 @@ import (
 	"agones.dev/agones/pkg"
 	"agones.dev/agones/pkg/client/clientset/versioned"
 	"agones.dev/agones/pkg/client/informers/externalversions"
+	"agones.dev/agones/pkg/fleetallocation"
+	"agones.dev/agones/pkg/fleets"
 	"agones.dev/agones/pkg/gameservers"
+	"agones.dev/agones/pkg/gameserversets"
 	"agones.dev/agones/pkg/util/runtime"
 	"agones.dev/agones/pkg/util/signals"
 	"agones.dev/agones/pkg/util/webhooks"
@@ -40,12 +43,13 @@ import (
 )
 
 const (
-	sidecarFlag     = "sidecar"
-	pullSidecarFlag = "always-pull-sidecar"
-	minPortFlag     = "min-port"
-	maxPortFlag     = "max-port"
-	certFileFlag    = "cert-file"
-	keyFileFlag     = "key-file"
+	sidecarFlag           = "sidecar"
+	pullSidecarFlag       = "always-pull-sidecar"
+	minPortFlag           = "min-port"
+	maxPortFlag           = "max-port"
+	certFileFlag          = "cert-file"
+	keyFileFlag           = "key-file"
+	controllerThreadiness = 2
 )
 
 var (
@@ -53,7 +57,7 @@ var (
 )
 
 // main starts the operator for the gameserver CRD
-func main() {
+func main() { // nolint: gocyclo
 	exec, err := os.Executable()
 	if err != nil {
 		logger.WithError(err).Fatal("Could not get executable path")
@@ -128,7 +132,10 @@ func main() {
 	agonesInformerFactory := externalversions.NewSharedInformerFactory(agonesClient, 30*time.Second)
 	kubeInformationFactory := informers.NewSharedInformerFactory(kubeClient, 30*time.Second)
 
-	c := gameservers.NewController(wh, health, minPort, maxPort, sidecarImage, alwaysPullSidecar, kubeClient, kubeInformationFactory, extClient, agonesClient, agonesInformerFactory)
+	gsController := gameservers.NewController(wh, health, minPort, maxPort, sidecarImage, alwaysPullSidecar, kubeClient, kubeInformationFactory, extClient, agonesClient, agonesInformerFactory)
+	gsSetController := gameserversets.NewController(wh, health, kubeClient, extClient, agonesClient, agonesInformerFactory)
+	fleetController := fleets.NewController(wh, health, kubeClient, extClient, agonesClient, agonesInformerFactory)
+	faController := fleetallocation.NewController(wh, kubeClient, extClient, agonesClient, agonesInformerFactory)
 
 	stop := signals.NewStopChannel()
 
@@ -140,6 +147,31 @@ func main() {
 			logger.WithError(err).Fatal("could not run webhook server")
 		}
 	}()
+	go func() {
+		err = gsController.Run(controllerThreadiness, stop)
+		if err != nil {
+			logger.WithError(err).Fatal("Could not run gameserver controller")
+		}
+	}()
+	go func() {
+		err = gsSetController.Run(controllerThreadiness, stop)
+		if err != nil {
+			logger.WithError(err).Fatal("Could not run gameserverset controller")
+		}
+	}()
+	go func() {
+		err = fleetController.Run(controllerThreadiness, stop)
+		if err != nil {
+			logger.WithError(err).Fatal("Could not run fleet controller")
+		}
+	}()
+	go func() {
+		err = faController.Run(stop)
+		if err != nil {
+			logger.WithError(err).Fatal("Could not run fleet controller")
+		}
+	}()
+
 	go func() {
 		logger.Info("Starting health check...")
 		srv := &http.Server{
@@ -158,10 +190,6 @@ func main() {
 		}
 	}()
 
-	err = c.Run(2, stop)
-	if err != nil {
-		logger.WithError(err).Fatal("Could not run gameserver controller")
-	}
-
-	logger.Info("Shut down gameserver controller")
+	<-stop
+	logger.Info("Shut down agones controllers")
 }

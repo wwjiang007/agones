@@ -22,6 +22,7 @@ import (
 
 	"agones.dev/agones/pkg/apis/stable/v1alpha1"
 	"agones.dev/agones/pkg/sdk"
+	agtesting "agones.dev/agones/pkg/testing"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/net/context"
@@ -40,13 +41,13 @@ func TestSidecarRun(t *testing.T) {
 		"ready": {
 			state: v1alpha1.RequestReady,
 			f: func(sc *SDKServer, ctx context.Context) {
-				sc.Ready(ctx, &sdk.Empty{})
+				sc.Ready(ctx, &sdk.Empty{}) // nolint: errcheck
 			},
 		},
 		"shutdown": {
 			state: v1alpha1.Shutdown,
 			f: func(sc *SDKServer, ctx context.Context) {
-				sc.Shutdown(ctx, &sdk.Empty{})
+				sc.Shutdown(ctx, &sdk.Empty{}) // nolint: errcheck
 			},
 		},
 		"unhealthy": {
@@ -61,10 +62,10 @@ func TestSidecarRun(t *testing.T) {
 
 	for k, v := range fixtures {
 		t.Run(k, func(t *testing.T) {
-			m := newMocks()
+			m := agtesting.NewMocks()
 			done := make(chan bool)
 
-			m.agonesClient.AddReactor("get", "gameservers", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			m.AgonesClient.AddReactor("get", "gameservers", func(action k8stesting.Action) (bool, runtime.Object, error) {
 				gs := &v1alpha1.GameServer{
 					Status: v1alpha1.GameServerStatus{
 						State: v1alpha1.Starting,
@@ -72,7 +73,7 @@ func TestSidecarRun(t *testing.T) {
 				}
 				return true, gs, nil
 			})
-			m.agonesClient.AddReactor("update", "gameservers", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			m.AgonesClient.AddReactor("update", "gameservers", func(action k8stesting.Action) (bool, runtime.Object, error) {
 				defer close(done)
 				ua := action.(k8stesting.UpdateAction)
 				gs := ua.GetObject().(*v1alpha1.GameServer)
@@ -83,8 +84,8 @@ func TestSidecarRun(t *testing.T) {
 			})
 
 			sc, err := NewSDKServer("test", "default",
-				false, time.Second, 1, 0, m.kubeClient, m.agonesClient)
-			sc.recorder = m.fakeRecorder
+				false, time.Second, 1, 0, m.KubeClient, m.AgonesClient)
+			sc.recorder = m.FakeRecorder
 
 			assert.Nil(t, err)
 
@@ -102,7 +103,7 @@ func TestSidecarRun(t *testing.T) {
 			}
 
 			for _, str := range v.recordings {
-				assert.Contains(t, <-m.fakeRecorder.Events, str)
+				assert.Contains(t, <-m.FakeRecorder.Events, str)
 			}
 		})
 	}
@@ -112,13 +113,13 @@ func TestSidecarUpdateState(t *testing.T) {
 	t.Parallel()
 
 	t.Run("ignore state change when unhealthy", func(t *testing.T) {
-		m := newMocks()
+		m := agtesting.NewMocks()
 		sc, err := defaultSidecar(m)
 		assert.Nil(t, err)
 
 		updated := false
 
-		m.agonesClient.AddReactor("get", "gameservers", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		m.AgonesClient.AddReactor("get", "gameservers", func(action k8stesting.Action) (bool, runtime.Object, error) {
 			gs := &v1alpha1.GameServer{
 				Status: v1alpha1.GameServerStatus{
 					State: v1alpha1.Unhealthy,
@@ -126,7 +127,7 @@ func TestSidecarUpdateState(t *testing.T) {
 			}
 			return true, gs, nil
 		})
-		m.agonesClient.AddReactor("update", "gameservers", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		m.AgonesClient.AddReactor("update", "gameservers", func(action k8stesting.Action) (bool, runtime.Object, error) {
 			updated = true
 			return true, nil, nil
 		})
@@ -140,7 +141,7 @@ func TestSidecarUpdateState(t *testing.T) {
 func TestSidecarHealthLastUpdated(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
-	m := newMocks()
+	m := agtesting.NewMocks()
 
 	sc, err := defaultSidecar(m)
 	assert.Nil(t, err)
@@ -188,7 +189,7 @@ func TestSidecarHealthLastUpdated(t *testing.T) {
 func TestSidecarHealthy(t *testing.T) {
 	t.Parallel()
 
-	m := newMocks()
+	m := agtesting.NewMocks()
 	sc, err := defaultSidecar(m)
 	assert.Nil(t, err)
 
@@ -283,9 +284,9 @@ func TestSidecarHealthy(t *testing.T) {
 }
 
 func TestSidecarHTTPHealthCheck(t *testing.T) {
-	m := newMocks()
+	m := agtesting.NewMocks()
 	sc, err := NewSDKServer("test", "default",
-		false, 1*time.Second, 1, 0, m.kubeClient, m.agonesClient)
+		false, 1*time.Second, 1, 0, m.KubeClient, m.AgonesClient)
 	assert.Nil(t, err)
 	now := time.Now().Add(time.Hour).UTC()
 	fc := clock.NewFakeClock(now)
@@ -307,9 +308,9 @@ func TestSidecarHTTPHealthCheck(t *testing.T) {
 	testHTTPHealth(t, "http://localhost:8080/gshealthz", "", http.StatusInternalServerError)
 }
 
-func defaultSidecar(mocks mocks) (*SDKServer, error) {
+func defaultSidecar(mocks agtesting.Mocks) (*SDKServer, error) {
 	return NewSDKServer("test", "default",
-		true, 5*time.Second, 1, 0, mocks.kubeClient, mocks.agonesClient)
+		true, 5*time.Second, 1, 0, mocks.KubeClient, mocks.AgonesClient)
 }
 
 func waitForMessage(sc *SDKServer) error {

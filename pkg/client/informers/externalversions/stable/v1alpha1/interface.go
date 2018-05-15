@@ -24,8 +24,14 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
+	// Fleets returns a FleetInformer.
+	Fleets() FleetInformer
+	// FleetAllocations returns a FleetAllocationInformer.
+	FleetAllocations() FleetAllocationInformer
 	// GameServers returns a GameServerInformer.
 	GameServers() GameServerInformer
+	// GameServerSets returns a GameServerSetInformer.
+	GameServerSets() GameServerSetInformer
 }
 
 type version struct {
@@ -39,7 +45,22 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
+// Fleets returns a FleetInformer.
+func (v *version) Fleets() FleetInformer {
+	return &fleetInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// FleetAllocations returns a FleetAllocationInformer.
+func (v *version) FleetAllocations() FleetAllocationInformer {
+	return &fleetAllocationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
 // GameServers returns a GameServerInformer.
 func (v *version) GameServers() GameServerInformer {
 	return &gameServerInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// GameServerSets returns a GameServerSetInformer.
+func (v *version) GameServerSets() GameServerSetInformer {
+	return &gameServerSetInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

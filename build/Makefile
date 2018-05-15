@@ -98,8 +98,21 @@ build-images: build-controller-image build-agones-sdk-image
 build-sdks: build-sdk-cpp
 
 # Run all tests
-test: ensure-build-image
+test: ensure-build-image lint test-go test-install-yaml
+
+# Run go tests
+test-go:
 	docker run --rm $(common_mounts) $(build_tag) go test -race $(agones_package)/...
+
+# Run test on install yaml - make sure there is no change
+# mostly this is for CI
+test-install-yaml:
+	-mkdir -p /tmp/agones-install
+	cp $(agones_path)/install/yaml/install.yaml /tmp/agones-install/install.yaml
+	sort /tmp/agones-install/install.yaml > /tmp/agones-install/install.yaml.sorted
+	$(MAKE) gen-install
+	sort $(agones_path)/install/yaml/install.yaml > /tmp/agones-install/install.current.yaml.sorted
+	diff /tmp/agones-install/install.yaml.sorted /tmp/agones-install/install.current.yaml.sorted
 
 # Push all the images up to $(REGISTRY)
 push: push-controller-image push-agones-sdk-image
@@ -108,17 +121,20 @@ push: push-controller-image push-agones-sdk-image
 install: ALWAYS_PULL_SIDECAR := true
 install: IMAGE_PULL_POLICY := "Always"
 install: ensure-build-image
-	cp $(build_path)/install.yaml $(build_path)/.install.yaml
-	sed -i -e 's!$${REGISTRY}!$(REGISTRY)!g' $(build_path)/.install.yaml
-	sed -i -e 's!$${VERSION}!$(VERSION)!g' $(build_path)/.install.yaml
-	sed -i -e 's!$${IMAGE_PULL_POLICY}!$(IMAGE_PULL_POLICY)!g' $(build_path)/.install.yaml
-	sed -i -e 's!$${ALWAYS_PULL_SIDECAR}!$(ALWAYS_PULL_SIDECAR)!g' $(build_path)/.install.yaml
-	docker run --rm $(common_mounts) $(DOCKER_RUN_ARGS) $(build_tag) kubectl apply -f $(mount_path)/build/.install.yaml
+	docker run --rm $(common_mounts) $(DOCKER_RUN_ARGS) $(build_tag) \
+		helm upgrade --install --namespace=default \
+		--set image.tag=$(VERSION),image.registry=$(REGISTRY),image.controller.pullPolicy=$(IMAGE_PULL_POLICY),image.sdk.alwaysPull=$(ALWAYS_PULL_SIDECAR) \
+		agones $(mount_path)/install/helm/agones/
 
 # Build a static binary for the gameserver controller
 build-controller-binary: ensure-build-image
 	docker run --rm -e "CGO_ENABLED=0" $(common_mounts) $(build_tag) go build \
 		-o $(mount_path)/cmd/controller/bin/controller -a $(go_version_flags) -installsuffix cgo $(agones_package)/cmd/controller
+
+# Lint the go source code.
+lint: ensure-build-image
+	docker run --rm $(common_mounts) -w $(mount_path) $(DOCKER_RUN_ARGS) $(build_tag) bash -c \
+		"/root/gen-lint-exclude.sh && gometalinter --config .exclude.gometalinter.json --deadline 100s -t --skip vendor ./..."
 
 # Build the image for the gameserver controller
 build-controller-image: ensure-build-image build-controller-binary
@@ -150,6 +166,11 @@ build-sdk-cpp: ensure-build-image
 # push the gameservers sidecar image
 push-agones-sdk-image: ensure-build-image
 	docker push $(sidecar_tag)
+
+# Generate the static install script
+gen-install: ensure-build-image
+	docker run --rm $(common_mounts) $(DOCKER_RUN_ARGS) $(build_tag) bash -c \
+		'helm template --name=agones-manual $(mount_path)/install/helm/agones > $(mount_path)/install/yaml/install.yaml'
 
 # Generate the SDK gRPC server and client code
 gen-gameservers-sdk-grpc: ensure-build-image
@@ -244,9 +265,11 @@ gcloud-init: ensure-build-config
 
 # Creates and authenticates a small, 3 node GKE cluster to work against
 gcloud-test-cluster: ensure-build-image
-	docker run --rm -it $(common_mounts) $(build_tag) gcloud \
+	docker run --rm -it $(common_mounts) $(DOCKER_RUN_ARGS) $(build_tag) gcloud \
 		deployment-manager deployments create test-cluster --config=$(mount_path)/build/gke-test-cluster/deployment.yml
 	$(MAKE) gcloud-auth-cluster
+	docker run --rm -it $(common_mounts) $(DOCKER_RUN_ARGS) $(build_tag) kubectl apply -f $(mount_path)/build/helm.yaml
+	docker run --rm $(common_mounts) $(DOCKER_RUN_ARGS) $(build_tag) helm init --service-account helm
 
 # Pulls down authentication information for kubectl against a cluster, name can be specified through CLUSTER_NAME
 # (defaults to 'test-cluster')
@@ -260,12 +283,7 @@ gcloud-auth-cluster: ensure-build-image
 # authenticate our docker configuration so that you can do a docker push directly
 # to the gcr.io repository
 gcloud-auth-docker: ensure-build-image
-	-sudo rm -rf $(build_path)/tmp
-	mkdir -p $(build_path)/tmp/gcloud-auth-docker
-	-cp ~/.dockercfg $(build_path)/tmp/gcloud-auth-docker
-	docker run --rm $(common_mounts) -v $(build_path)/tmp/gcloud-auth-docker:/root $(build_tag) gcloud docker --authorize-only
-	sudo mv $(build_path)/tmp/gcloud-auth-docker/.dockercfg ~/
-	sudo chown $(USER) ~/.dockercfg
+	docker run --rm $(common_mounts) $(build_tag) gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://gcr.io
 
 # Clean the gcloud configuration
 clean-gcloud-config:
@@ -283,8 +301,8 @@ clean-gcloud-config:
 #
 # Use MINIKUBE_DRIVER variable to change the VM driver
 # (defaults virtualbox for Linux and macOS, hyperv for windows) if you so desire.
-minikube-test-cluster: minikube-agones-profile
-	$(MINIKUBE) start --kubernetes-version v1.9.0 --vm-driver $(MINIKUBE_DRIVER) \
+minikube-test-cluster: ensure-build-image minikube-agones-profile
+	$(MINIKUBE) start --kubernetes-version v1.9.4 --vm-driver $(MINIKUBE_DRIVER) \
 		--extra-config=apiserver.Admission.PluginNames=NamespaceLifecycle,LimitRanger,ServiceAccount,PersistentVolumeLabel,DefaultStorageClass,DefaultTolerationSeconds,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ResourceQuota \
 		--extra-config=apiserver.Authorization.Mode=RBAC
 	# wait until the master is up
@@ -296,6 +314,7 @@ minikube-test-cluster: minikube-agones-profile
 	# this is needed for kubernetes component to work correctly while RBAC is enabled
 	-docker run --rm $(common_mounts) --network=host -v $(minikube_cert_mount) $(DOCKER_RUN_ARGS) $(build_tag) \
 		kubectl create clusterrolebinding add-on-cluster-admin --clusterrole=cluster-admin --serviceaccount=kube-system:default
+	docker run --rm $(common_mounts) --network=host -v $(minikube_cert_mount) $(DOCKER_RUN_ARGS) $(build_tag) helm init
 	$(MAKE) minikube-post-start
 
 # switch to the agones cluster

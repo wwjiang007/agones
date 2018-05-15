@@ -25,8 +25,20 @@ type FakeStableV1alpha1 struct {
 	*testing.Fake
 }
 
+func (c *FakeStableV1alpha1) Fleets(namespace string) v1alpha1.FleetInterface {
+	return &FakeFleets{c, namespace}
+}
+
+func (c *FakeStableV1alpha1) FleetAllocations(namespace string) v1alpha1.FleetAllocationInterface {
+	return &FakeFleetAllocations{c, namespace}
+}
+
 func (c *FakeStableV1alpha1) GameServers(namespace string) v1alpha1.GameServerInterface {
 	return &FakeGameServers{c, namespace}
+}
+
+func (c *FakeStableV1alpha1) GameServerSets(namespace string) v1alpha1.GameServerSetInterface {
+	return &FakeGameServerSets{c, namespace}
 }
 
 // RESTClient returns a RESTClient that is used to communicate

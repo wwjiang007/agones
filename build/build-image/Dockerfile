@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ForceUpdate 2 -- change here if you need to force a rebuild
+# ForceUpdate 3 -- change here if you need to force a rebuild
 
 # compiling proto + grpc takes an exceptionally long time
 # so we'll use that as the base.
 FROM grpc/cxx:1.8
 
 RUN apt-get update && \
-    apt-get install -y wget rsync make python bash-completion zip && \
+    apt-get install -y wget rsync make python bash-completion zip nano jq && \
     apt-get clean
 
 # install go
@@ -42,6 +42,16 @@ ENV PATH /usr/local/go/bin:/go/bin:/opt/google-cloud-sdk/bin:$PATH
 RUN gcloud components update && gcloud components install kubectl
 RUN echo "source <(kubectl completion bash)" >> /root/.bashrc
 
+# install Helm package manager
+ENV HELM_VER 2.8.2
+ENV HELM_URL https://storage.googleapis.com/kubernetes-helm/helm-v${HELM_VER}-linux-amd64.tar.gz
+RUN curl -L  ${HELM_URL} > /tmp/helm.tar.gz \
+  && tar -zxvf /tmp/helm.tar.gz -C /tmp \
+  && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
+  && chmod go+rx /usr/local/bin/helm \
+  && rm /tmp/helm.tar.gz && rm -rf /tmp/linux-amd64
+RUN echo "source <(helm completion bash)" >> /root/.bashrc
+
 # install go tooling for development, building and testing
 RUN go get -u github.com/golang/dep/cmd/dep && \
     go get -u github.com/alecthomas/gometalinter && \
@@ -54,6 +64,8 @@ RUN mkdir -p /go/src && cd /go/src && mkdir -p k8s.io && cd k8s.io && \
 
 # make sure we keep the path to go
 RUN echo "export PATH=/usr/local/go/bin:/go/bin/:\$PATH" >> /root/.bashrc
+# make nano the editor
+RUN echo "export EDITOR=nano" >> /root/.bashrc
 
 # code generation scripts
 COPY *.sh /root/

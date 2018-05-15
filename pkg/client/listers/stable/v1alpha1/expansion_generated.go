@@ -18,6 +18,22 @@
 
 package v1alpha1
 
+// FleetListerExpansion allows custom methods to be added to
+// FleetLister.
+type FleetListerExpansion interface{}
+
+// FleetNamespaceListerExpansion allows custom methods to be added to
+// FleetNamespaceLister.
+type FleetNamespaceListerExpansion interface{}
+
+// FleetAllocationListerExpansion allows custom methods to be added to
+// FleetAllocationLister.
+type FleetAllocationListerExpansion interface{}
+
+// FleetAllocationNamespaceListerExpansion allows custom methods to be added to
+// FleetAllocationNamespaceLister.
+type FleetAllocationNamespaceListerExpansion interface{}
+
 // GameServerListerExpansion allows custom methods to be added to
 // GameServerLister.
 type GameServerListerExpansion interface{}
@@ -25,3 +41,11 @@ type GameServerListerExpansion interface{}
 // GameServerNamespaceListerExpansion allows custom methods to be added to
 // GameServerNamespaceLister.
 type GameServerNamespaceListerExpansion interface{}
+
+// GameServerSetListerExpansion allows custom methods to be added to
+// GameServerSetLister.
+type GameServerSetListerExpansion interface{}
+
+// GameServerSetNamespaceListerExpansion allows custom methods to be added to
+// GameServerSetNamespaceLister.
+type GameServerSetNamespaceListerExpansion interface{}

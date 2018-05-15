@@ -52,6 +52,12 @@ func addKnownTypes(scheme *k8sruntime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&GameServer{},
 		&GameServerList{},
+		&GameServerSet{},
+		&GameServerSetList{},
+		&Fleet{},
+		&FleetList{},
+		&FleetAllocation{},
+		&FleetAllocationList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil
