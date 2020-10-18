@@ -1,4 +1,4 @@
-// Copyright 2018 Google Inc. All Rights Reserved.
+// Copyright 2018 Google LLC All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,22 +15,59 @@
 package gameserversets
 
 import (
-	stablev1alpha1 "agones.dev/agones/pkg/apis/stable/v1alpha1"
-	listerv1alpha1 "agones.dev/agones/pkg/client/listers/stable/v1alpha1"
+	"sort"
+
+	agonesv1 "agones.dev/agones/pkg/apis/agones/v1"
+	listerv1 "agones.dev/agones/pkg/client/listers/agones/v1"
+	"agones.dev/agones/pkg/gameservers"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
+// sortGameServersByLeastFullNodes sorts the list of gameservers by which gameservers reside on the least full nodes
+func sortGameServersByLeastFullNodes(list []*agonesv1.GameServer, count map[string]gameservers.NodeCount) []*agonesv1.GameServer {
+	sort.Slice(list, func(i, j int) bool {
+		a := list[i]
+		b := list[j]
+		// not scheduled yet/node deleted, put them first
+		ac, ok := count[a.Status.NodeName]
+		if !ok {
+			return true
+		}
+
+		bc, ok := count[b.Status.NodeName]
+		if !ok {
+			return false
+		}
+
+		return (ac.Allocated + ac.Ready) < (bc.Allocated + bc.Ready)
+	})
+
+	return list
+}
+
+// sortGameServersByNewFirst sorts by newest gameservers first, and returns them
+func sortGameServersByNewFirst(list []*agonesv1.GameServer) []*agonesv1.GameServer {
+	sort.Slice(list, func(i, j int) bool {
+		a := list[i]
+		b := list[j]
+
+		return a.ObjectMeta.CreationTimestamp.Before(&b.ObjectMeta.CreationTimestamp)
+	})
+
+	return list
+}
+
 // ListGameServersByGameServerSetOwner lists the GameServers for a given GameServerSet
-func ListGameServersByGameServerSetOwner(gameServerLister listerv1alpha1.GameServerLister,
-	gsSet *stablev1alpha1.GameServerSet) ([]*stablev1alpha1.GameServer, error) {
-	list, err := gameServerLister.List(labels.SelectorFromSet(labels.Set{stablev1alpha1.GameServerSetGameServerLabel: gsSet.ObjectMeta.Name}))
+func ListGameServersByGameServerSetOwner(gameServerLister listerv1.GameServerLister,
+	gsSet *agonesv1.GameServerSet) ([]*agonesv1.GameServer, error) {
+	list, err := gameServerLister.List(labels.SelectorFromSet(labels.Set{agonesv1.GameServerSetGameServerLabel: gsSet.ObjectMeta.Name}))
 	if err != nil {
 		return list, errors.Wrapf(err, "error listing gameservers for gameserverset %s", gsSet.ObjectMeta.Name)
 	}
 
-	var result []*stablev1alpha1.GameServer
+	var result []*agonesv1.GameServer
 	for _, gs := range list {
 		if metav1.IsControlledBy(gs, gsSet) {
 			result = append(result, gs)

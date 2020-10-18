@@ -1,4 +1,4 @@
-// Copyright 2018 Google Inc. All Rights Reserved.
+// Copyright 2018 Google LLC All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,33 +15,21 @@
 package webhooks
 
 import (
+	"bytes"
+	"encoding/json"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"bytes"
-	"encoding/json"
-
+	agonesv1 "agones.dev/agones/pkg/apis/agones/v1"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/api/admission/v1beta1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
-
-type testServer struct {
-	server *httptest.Server
-}
-
-func (ts *testServer) Close() error {
-	ts.server.Close()
-	return nil
-}
-
-// ListenAndServeTLS(certFile, keyFile string) error
-func (ts *testServer) ListenAndServeTLS(certFile, keyFile string) error {
-	ts.server.StartTLS()
-	return nil
-}
 
 func TestWebHookAddHandler(t *testing.T) {
 	t.Parallel()
@@ -98,14 +86,14 @@ func TestWebHookAddHandler(t *testing.T) {
 			defer close(stop)
 
 			fixture := v1beta1.AdmissionReview{Request: &v1beta1.AdmissionRequest{
-				Kind:      v1.GroupVersionKind{Kind: "kind", Group: "group", Version: "version"},
+				Kind:      metav1.GroupVersionKind{Kind: "kind", Group: "group", Version: "version"},
 				Operation: v1beta1.Create,
 				UID:       "1234"}}
 
 			callCount := 0
-			wh := NewWebHook("", "")
-			ts := &testServer{server: httptest.NewUnstartedServer(wh.mux)}
-			wh.server = ts
+			mux := http.NewServeMux()
+			ts := httptest.NewUnstartedServer(mux)
+			wh := NewWebHook(mux)
 
 			for _, th := range handles.handlers {
 				wh.AddHandler("/test", th.gk, th.op, func(review v1beta1.AdmissionReview) (v1beta1.AdmissionReview, error) {
@@ -116,14 +104,14 @@ func TestWebHookAddHandler(t *testing.T) {
 				})
 			}
 
-			err := wh.Run(stop)
-			assert.Nil(t, err)
+			ts.StartTLS()
+			defer ts.Close()
 
-			client := ts.server.Client()
-			url := ts.server.URL + "/test"
+			client := ts.Client()
+			url := ts.URL + "/test"
 
 			buf := &bytes.Buffer{}
-			err = json.NewEncoder(buf).Encode(fixture)
+			err := json.NewEncoder(buf).Encode(fixture)
 			assert.Nil(t, err)
 
 			r, err := http.NewRequest("GET", url, buf)
@@ -131,10 +119,111 @@ func TestWebHookAddHandler(t *testing.T) {
 
 			resp, err := client.Do(r)
 			assert.Nil(t, err)
+			defer resp.Body.Close() // nolint: errcheck
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 			assert.Equal(t, handles.expected.count, callCount, "[%v] /test should have been called for %#v", k, handles)
 		})
 	}
+}
 
+func TestWebHookFleetValidationHandler(t *testing.T) {
+	t.Parallel()
+
+	type testHandler struct {
+		gk schema.GroupKind
+		op v1beta1.Operation
+	}
+	type expected struct {
+		count int
+	}
+	fixtures := map[string]struct {
+		handlers []testHandler
+		expected expected
+	}{
+		"single, matching": {
+			handlers: []testHandler{{gk: schema.GroupKind{Group: "group", Kind: "fleet"}, op: v1beta1.Create}},
+			expected: expected{count: 1},
+		},
+	}
+
+	for k, handles := range fixtures {
+		t.Run(k, func(t *testing.T) {
+
+			stop := make(chan struct{})
+			defer close(stop)
+
+			raw := []byte(`{
+				"apiVersion": "agones.dev/v1",
+				"kind": "Fleet",
+				"spec": {
+					"replicas": 2,
+					"template": {
+						"spec": {
+							"template": {
+								"spec": {
+									"containers": [{
+										"image": "gcr.io/agones-images/udp-server:0.21",
+										"name": false
+									}]
+								}
+							}
+						}
+					}
+				}
+			}`)
+			fixture := v1beta1.AdmissionReview{Request: &v1beta1.AdmissionRequest{
+				Kind:      metav1.GroupVersionKind{Kind: "fleet", Group: "group", Version: "version"},
+				Operation: v1beta1.Create,
+				Object: runtime.RawExtension{
+					Raw: raw,
+				},
+				UID: "1234"}}
+
+			callCount := 0
+			mux := http.NewServeMux()
+			ts := httptest.NewUnstartedServer(mux)
+			wh := NewWebHook(mux)
+
+			for _, th := range handles.handlers {
+				wh.AddHandler("/test", th.gk, th.op, func(review v1beta1.AdmissionReview) (v1beta1.AdmissionReview, error) {
+					fleet := &agonesv1.Fleet{}
+
+					callCount++
+					obj := review.Request.Object
+					err := json.Unmarshal(obj.Raw, fleet)
+					assert.NotNil(t, err)
+					if err != nil {
+						return review, errors.Wrapf(err, "error unmarshalling original Fleet json: %s", obj.Raw)
+					}
+					return review, nil
+				})
+			}
+
+			ts.StartTLS()
+			defer ts.Close()
+
+			client := ts.Client()
+			url := ts.URL + "/test"
+
+			buf := &bytes.Buffer{}
+			err := json.NewEncoder(buf).Encode(fixture)
+			assert.Nil(t, err)
+
+			r, err := http.NewRequest("GET", url, buf)
+			assert.Nil(t, err)
+
+			resp, err := client.Do(r)
+			assert.Nil(t, err)
+			defer resp.Body.Close() // nolint: errcheck
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			body, err := ioutil.ReadAll(resp.Body)
+			assert.Nil(t, err)
+
+			expected := "cannot unmarshal bool into Go struct field Container.spec.template.spec.template.spec.containers.name of type string"
+			assert.Contains(t, string(body), expected)
+
+			assert.Equal(t, handles.expected.count, callCount, "[%v] /test should have been called for %#v", k, handles)
+		})
+	}
 }

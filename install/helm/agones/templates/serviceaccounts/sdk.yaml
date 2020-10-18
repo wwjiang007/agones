@@ -1,4 +1,4 @@
-# Copyright 2018 Google Inc. All Rights Reserved.
+# Copyright 2018 Google LLC All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,47 +11,59 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+{{- if .Values.agones.registerServiceAccounts }}
+{{- range .Values.gameservers.namespaces }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ .Values.serviceaccount.sdk }}
+  name: {{ $.Values.agones.serviceaccount.sdk }}
+  namespace: {{ . }}
   labels:
-    app: {{ template "agones.name" . }}
-    chart: {{ template "agones.chart" . }}
-    release: {{ .Release.Name }}
-    heritage: {{ .Release.Service }}
+    app: {{ template "agones.name" $ }}
+    chart: {{ template "agones.chart" $ }}
+    release: {{ $.Release.Name }}
+    heritage: {{ $.Release.Service }}
 ---
+{{- end }}
+{{- if .Values.agones.rbacEnabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ .Values.serviceaccount.sdk }}
-  namespace: {{ .Values.namespace }}
+  name: {{ .Values.agones.serviceaccount.sdk }}
+  namespace: {{ .Release.Namespace }}
   labels:
     app: {{ template "agones.name" . }}
     chart: {{ template "agones.chart" . }}
     release: {{ .Release.Name }}
     heritage: {{ .Release.Service }}
 rules:
-- apiGroups: ["stable.agones.dev"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+- apiGroups: ["agones.dev"]
   resources: ["gameservers"]
-  verbs: ["get", "update"]
+  verbs: ["list", "update", "watch"]
 ---
+  {{- range .Values.gameservers.namespaces }}
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
-  name: {{ .Values.serviceaccount.sdk }}-access
-  namespace: {{ .Values.namespace }}
+  name: {{ $.Values.agones.serviceaccount.sdk }}-access
+  namespace: {{ . }}
   labels:
-    app: {{ template "agones.name" . }}
-    chart: {{ template "agones.chart" . }}
-    release: {{ .Release.Name }}
-    heritage: {{ .Release.Service }}
+    app: {{ template "agones.name" $ }}
+    chart: {{ template "agones.chart" $ }}
+    release: {{ $.Release.Name }}
+    heritage: {{ $.Release.Service }}
 subjects:
 - kind: User
-  name: system:serviceaccount:default:{{ .Values.serviceaccount.sdk }}
+  name: system:serviceaccount:{{ . }}:{{ $.Values.agones.serviceaccount.sdk }}
   apiGroup: rbac.authorization.k8s.io
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ .Values.serviceaccount.sdk }}
+  name: {{ $.Values.agones.serviceaccount.sdk }}
+---
+  {{- end }}
+{{- end }}
+{{- end }}

@@ -1,4 +1,4 @@
-# Copyright 2018 Google Inc. All Rights Reserved.
+# Copyright 2018 Google LLC All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,9 +23,11 @@
 #     \_/ \__,_|_|  |_|\__,_|_.__/|_|\___|___/
 #
 
-# Use a hash of the Dockerfile for the tag, so when the Dockerfile changes,
-# it automatically rebuilds
-build_version := $(shell sha256sum $(build_path)/build-image/Dockerfile | head -c 10)
+# Get the sha for a file
+sha = $(shell sha256sum $(1) | head -c 10)
+
+# Get the sha of all files in a directory using wildcard in $(1)
+sha_dir = $(shell sha256sum  $(1) | cut -d' ' -f1 | sha256sum | head -c 10 )
 
 # Minikube executable
 MINIKUBE ?= minikube
@@ -46,3 +48,25 @@ minikube_cert_mount := ~/.minikube:$(HOME)/.minikube
 
 # Does not do anything
 minikube-post-start:
+# kubectl > 1.11 may have --address flag, but for the time being,
+# we will use --network=host, as port-forward binds to localhost
+
+# port forward the agones controller.
+# useful for pprof and stats viewing, etc
+controller-portforward: PORT ?= 8080
+controller-portforward: DOCKER_RUN_ARGS+=--network=host
+controller-portforward:
+	$(DOCKER_RUN) \
+		kubectl port-forward deployments/agones-controller -n agones-system $(PORT)
+
+# portforward prometheus web ui
+prometheus-portforward: DOCKER_RUN_ARGS+=--network=host
+prometheus-portforward:
+	$(DOCKER_RUN) \
+		kubectl port-forward deployments/prom-prometheus-server 9090 -n metrics
+
+# portforward grafana
+grafana-portforward: DOCKER_RUN_ARGS+=--network=host
+grafana-portforward:
+	$(DOCKER_RUN) \
+		kubectl port-forward deployments/grafana 3000 -n metrics

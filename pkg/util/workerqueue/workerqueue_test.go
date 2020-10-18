@@ -1,4 +1,4 @@
-// Copyright 2018 Google Inc. All Rights Reserved.
+// Copyright 2018 Google LLC All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,12 +15,11 @@
 package workerqueue
 
 import (
-	"testing"
-	"time"
-
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"testing"
+	"time"
 
 	"github.com/heptiolabs/healthcheck"
 	"github.com/sirupsen/logrus"
@@ -41,7 +40,7 @@ func TestWorkerQueueRun(t *testing.T) {
 		return nil
 	}
 
-	wq := NewWorkerQueue(syncHandler, logrus.WithField("source", "test"), "test")
+	wq := NewWorkerQueue(syncHandler, logrus.WithField("source", "test"), "testKey", "test")
 	stop := make(chan struct{})
 	defer close(stop)
 
@@ -71,7 +70,7 @@ func TestWorkerQueueHealthy(t *testing.T) {
 		<-done
 		return nil
 	}
-	wq := NewWorkerQueue(handler, logrus.WithField("source", "test"), "test")
+	wq := NewWorkerQueue(handler, logrus.WithField("source", "test"), "testKey", "test")
 	wq.Enqueue(cache.ExplicitKey("default/test"))
 
 	stop := make(chan struct{})
@@ -109,33 +108,52 @@ func TestWorkQueueHealthCheck(t *testing.T) {
 	handler := func(string) error {
 		return nil
 	}
-	wq := NewWorkerQueue(handler, logrus.WithField("source", "test"), "test")
+	wq := NewWorkerQueue(handler, logrus.WithField("source", "test"), "testKey", "test")
 	health.AddLivenessCheck("test", wq.Healthy)
 
 	server := httptest.NewServer(health)
 	defer server.Close()
 
+	const workersCount = 1
 	stop := make(chan struct{})
-	go wq.Run(1, stop)
+	go wq.Run(workersCount, stop)
 
-	url := server.URL + "/live"
+	// Wait for worker to actually start
+	err := wait.PollImmediate(100*time.Millisecond, 5*time.Second, func() (bool, error) {
+		rc := wq.RunCount()
+		logrus.WithField("runcount", rc).Info("Checking run count before liveness check")
+		return rc == workersCount, nil
+	})
+	assert.Nil(t, err)
 
 	f := func(t *testing.T, url string, status int) {
-		resp, err := http.Get(url)
-		assert.Nil(t, err)
-		defer resp.Body.Close() // nolint: errcheck
+		// sometimes the http server takes a bit to start up
+		err := wait.PollImmediate(time.Second, 5*time.Second, func() (bool, error) {
+			resp, err := http.Get(url)
+			assert.Nil(t, err)
+			defer resp.Body.Close() // nolint: errcheck
 
-		body, err := ioutil.ReadAll(resp.Body)
+			if status != resp.StatusCode {
+				return false, nil
+			}
+
+			body, err := ioutil.ReadAll(resp.Body)
+			assert.Nil(t, err)
+			assert.Equal(t, status, resp.StatusCode)
+			assert.Equal(t, []byte("{}\n"), body)
+
+			return true, nil
+		})
+
 		assert.Nil(t, err)
-		assert.Equal(t, status, resp.StatusCode)
-		assert.Equal(t, []byte("{}\n"), body)
 	}
 
+	url := server.URL + "/live"
 	f(t, url, http.StatusOK)
 
 	close(stop)
 	// closing can take a short while
-	err := wait.PollImmediate(time.Second, 5*time.Second, func() (bool, error) {
+	err = wait.PollImmediate(time.Second, 5*time.Second, func() (bool, error) {
 		rc := wq.RunCount()
 		logrus.WithField("runcount", rc).Info("Checking run count")
 		return rc == 0, nil
@@ -145,4 +163,33 @@ func TestWorkQueueHealthCheck(t *testing.T) {
 	// gate
 	assert.Error(t, wq.Healthy())
 	f(t, url, http.StatusServiceUnavailable)
+}
+
+func TestWorkerQueueEnqueueAfter(t *testing.T) {
+	t.Parallel()
+
+	updated := make(chan bool)
+	syncHandler := func(s string) error {
+		updated <- true
+		return nil
+	}
+	wq := NewWorkerQueue(syncHandler, logrus.WithField("source", "test"), "testKey", "test")
+	stop := make(chan struct{})
+	defer close(stop)
+
+	go wq.Run(1, stop)
+
+	wq.EnqueueAfter(cache.ExplicitKey("default/test"), 2*time.Second)
+
+	select {
+	case <-updated:
+		assert.FailNow(t, "should not be a result in queue yet")
+	case <-time.After(time.Second):
+	}
+
+	select {
+	case <-updated:
+	case <-time.After(2 * time.Second):
+		assert.Fail(t, "should have got a queue'd message by now")
+	}
 }

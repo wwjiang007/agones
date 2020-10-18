@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2017 Google LLC All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,9 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-rsync -r /go/src/agones.dev/agones/vendor/k8s.io/ /go/src/k8s.io/
-cd /go/src/k8s.io/code-generator
-./generate-groups.sh "all" \
+set -x
+
+bash /go/src/k8s.io/code-generator/generate-groups.sh "all" \
     agones.dev/agones/pkg/client \
-    agones.dev/agones/pkg/apis stable:v1alpha1 \
+    agones.dev/agones/pkg/apis "allocation:v1 agones:v1 multicluster:v1 autoscaling:v1" \
     --go-header-file=/go/src/agones.dev/agones/build/boilerplate.go.txt

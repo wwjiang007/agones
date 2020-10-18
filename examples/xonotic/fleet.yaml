@@ -1,4 +1,4 @@
-# Copyright 2018 Google Inc. All Rights Reserved.
+# Copyright 2018 Google LLC All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 # Usually you would define a Fleet rather than a GameServerSet
 # directly. This is here mostly for testing purposes
 
-apiVersion: "stable.agones.dev/v1alpha1"
+apiVersion: "agones.dev/v1"
 kind: Fleet
 metadata:
   name: xonotic
@@ -25,8 +25,9 @@ spec:
     type: Recreate
   template:
     spec:
-      containerPort: 26000
-      portPolicy: "dynamic"
+      ports:
+      - name: default
+        containerPort: 26000
       health:
         initialDelaySeconds: 30
         periodSeconds: 60
@@ -34,4 +35,4 @@ spec:
         spec:
           containers:
           - name: xonotic
-            image: gcr.io/agones-images/xonotic-example:0.1
+            image: gcr.io/agones-images/xonotic-example:0.8

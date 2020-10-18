@@ -1,4 +1,4 @@
-// Copyright 2018 Google Inc. All Rights Reserved.
+// Copyright 2018 Google LLC All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	apiv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	extv1beta1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -30,14 +30,13 @@ import (
 // Has a deadline of 60 seconds for this to occur.
 func WaitForEstablishedCRD(crdGetter extv1beta1.CustomResourceDefinitionInterface, name string, logger *logrus.Entry) error {
 	return wait.PollImmediate(time.Second, 60*time.Second, func() (done bool, err error) {
-		crd, err := crdGetter.Get(name, v1.GetOptions{})
+		crd, err := crdGetter.Get(name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
 
 		for _, cond := range crd.Status.Conditions {
-			switch cond.Type {
-			case apiv1beta1.Established:
+			if cond.Type == apiv1beta1.Established {
 				if cond.Status == apiv1beta1.ConditionTrue {
 					logger.WithField("crd", crd.ObjectMeta.Name).Info("custom resource definition established")
 					return true, err

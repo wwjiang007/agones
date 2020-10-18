@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2017 Google LLC All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,8 +27,8 @@ REPOSITORY = gcr.io/agones-images
 
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 project_path := $(dir $(mkfile_path))
-server_tag = $(REPOSITORY)/udp-server:0.1
-package = agones.dev/agones/examples/simple-udp
+server_tag = $(REPOSITORY)/udp-server:0.21
+root_path = $(realpath $(project_path)/../..)
 
 #   _____                    _
 #  |_   _|_ _ _ __ __ _  ___| |_ ___
@@ -37,19 +37,10 @@ package = agones.dev/agones/examples/simple-udp
 #    |_|\__,_|_|  \__, |\___|\__|___/
 #                 |___/
 
-# build both client and server
-build: build-server build-client
-
-# Build the server
-build-server:
-	CGO_ENABLED=0 go build -o $(project_path)/server/bin/server -a -installsuffix cgo $(package)/server
-
 # Build a docker image for the server, and tag it
-build-server-image:
-	docker build $(project_path)/server/ --tag=$(server_tag)
+build:
+	cd $(root_path) && docker build -f $(project_path)/Dockerfile --tag=$(server_tag) .
 
-# Build the client
-build-client:
-	go build -o $(project_path)/client/bin/client $(package)/client
-
-
+# check if hosted on Google Cloud Registry
+gcr-check:
+	gcloud container images describe $(server_tag)

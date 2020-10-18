@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2017 Google LLC All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,17 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: "stable.agones.dev/v1alpha1"
+apiVersion: "agones.dev/v1"
 kind: Fleet
 metadata:
   # generate a unique name
   # will need to be created with `kubectl create`
   generateName: cpp-simple-
 spec:
-  containerPort: 7654
+  replicas: 2
   template:
     spec:
-      containers:
-      - name: cpp-simple
-        image: gcr.io/agones-images/cpp-simple-server:0.1
-        # imagePullPolicy: Always # add for development
+      ports:
+      - name: default
+        portPolicy: Dynamic
+        containerPort: 7654
+      template:
+        spec:
+          containers:
+            - name: cpp-simple
+              image: gcr.io/agones-images/cpp-simple-server:0.12
+              # imagePullPolicy: Always # add for development

@@ -1,4 +1,4 @@
-// Copyright 2017 Google Inc. All Rights Reserved.
+// Copyright 2017 Google LLC All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package runtime
 import (
 	"fmt"
 
+	joonix "github.com/joonix/log"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/util/runtime"
@@ -33,7 +34,7 @@ type stackTracer interface {
 
 // replace the standard glog error logger, with a logrus one
 func init() {
-	logrus.SetFormatter(&logrus.JSONFormatter{})
+	logrus.SetFormatter(&joonix.FluentdFormatter{})
 
 	runtime.ErrorHandlers[0] = func(err error) {
 		if stackTrace, ok := err.(stackTracer); ok {
@@ -48,11 +49,18 @@ func init() {
 	}
 }
 
+// SetLevel select level to filter logger output
+func SetLevel(level logrus.Level) {
+	logrus.SetLevel(level)
+}
+
 // HandleError wraps runtime.HandleError so that it is possible to
 // use WithField with logrus.
 func HandleError(logger *logrus.Entry, err error) {
-	// it's a bit of a double handle, but I can't see a better way to do it
-	logger.WithError(err).Error()
+	if logger != nil {
+		// it's a bit of a double handle, but I can't see a better way to do it
+		logger.WithError(err).Error()
+	}
 	runtime.HandleError(err)
 }
 

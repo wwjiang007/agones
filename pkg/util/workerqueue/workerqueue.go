@@ -1,4 +1,4 @@
-// Copyright 2018 Google Inc. All Rights Reserved.
+// Copyright 2018 Google LLC All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,9 +22,11 @@ import (
 	"sync"
 	"time"
 
+	"agones.dev/agones/pkg/util/logfields"
 	"agones.dev/agones/pkg/util/runtime"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	k8serror "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -42,8 +44,9 @@ type Handler func(string) error
 // with controllers and related and processing Kubernetes watched
 // events and synchronising resources
 type WorkerQueue struct {
-	logger *logrus.Entry
-	queue  workqueue.RateLimitingInterface
+	logger  *logrus.Entry
+	keyName string
+	queue   workqueue.RateLimitingInterface
 	// SyncHandler is exported to make testing easier (hack)
 	SyncHandler Handler
 
@@ -52,11 +55,25 @@ type WorkerQueue struct {
 	running int
 }
 
+// FastRateLimiter returns a rate limiter without exponential back-off, with specified maximum per-item retry delay.
+func FastRateLimiter(maxDelay time.Duration) workqueue.RateLimiter {
+	const numFastRetries = 5
+	const fastDelay = 200 * time.Millisecond // first few retries up to 'numFastRetries' are fast
+
+	return workqueue.NewItemFastSlowRateLimiter(fastDelay, maxDelay, numFastRetries)
+}
+
 // NewWorkerQueue returns a new worker queue for a given name
-func NewWorkerQueue(handler Handler, logger *logrus.Entry, name string) *WorkerQueue {
+func NewWorkerQueue(handler Handler, logger *logrus.Entry, keyName logfields.ResourceType, queueName string) *WorkerQueue {
+	return NewWorkerQueueWithRateLimiter(handler, logger, keyName, queueName, workqueue.DefaultControllerRateLimiter())
+}
+
+// NewWorkerQueueWithRateLimiter returns a new worker queue for a given name and a custom rate limiter.
+func NewWorkerQueueWithRateLimiter(handler Handler, logger *logrus.Entry, keyName logfields.ResourceType, queueName string, rateLimiter workqueue.RateLimiter) *WorkerQueue {
 	return &WorkerQueue{
-		logger:      logger.WithField("queue", name),
-		queue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), name),
+		keyName:     string(keyName),
+		logger:      logger.WithField("queue", queueName),
+		queue:       workqueue.NewNamedRateLimitingQueue(rateLimiter, queueName),
 		SyncHandler: handler,
 	}
 }
@@ -68,12 +85,41 @@ func (wq *WorkerQueue) Enqueue(obj interface{}) {
 	var key string
 	var err error
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
-		err := errors.Wrap(err, "Error creating key for object")
+		err = errors.Wrap(err, "Error creating key for object")
 		runtime.HandleError(wq.logger.WithField("obj", obj), err)
 		return
 	}
-	wq.logger.WithField("key", key).Info("Enqueuing key")
+	wq.logger.WithField(wq.keyName, key).Debug("Enqueuing")
 	wq.queue.AddRateLimited(key)
+}
+
+// EnqueueImmediately performs Enqueue but without rate-limiting.
+// This should be used to continue partially completed work after giving other
+// items in the queue a chance of running.
+func (wq *WorkerQueue) EnqueueImmediately(obj interface{}) {
+	var key string
+	var err error
+	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+		err = errors.Wrap(err, "Error creating key for object")
+		runtime.HandleError(wq.logger.WithField("obj", obj), err)
+		return
+	}
+	wq.logger.WithField(wq.keyName, key).Debug("Enqueuing immediately")
+	wq.queue.Add(key)
+}
+
+// EnqueueAfter delays an enqueue operation by duration
+func (wq *WorkerQueue) EnqueueAfter(obj interface{}, duration time.Duration) {
+	var key string
+	var err error
+	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+		err = errors.Wrap(err, "Error creating key for object")
+		runtime.HandleError(wq.logger.WithField("obj", obj), err)
+		return
+	}
+
+	wq.logger.WithField(wq.keyName, key).WithField("duration", duration).Debug("Enqueueing after duration")
+	wq.queue.AddAfter(key, duration)
 }
 
 // runWorker is a long-running function that will continually call the
@@ -93,20 +139,26 @@ func (wq *WorkerQueue) processNextWorkItem() bool {
 	}
 	defer wq.queue.Done(obj)
 
-	wq.logger.WithField("obj", obj).Info("Processing obj")
+	wq.logger.WithField(wq.keyName, obj).Debug("Processing")
 
 	var key string
 	var ok bool
 	if key, ok = obj.(string); !ok {
-		runtime.HandleError(wq.logger.WithField("obj", obj), errors.Errorf("expected string in queue, but got %T", obj))
+		runtime.HandleError(wq.logger.WithField(wq.keyName, obj), errors.Errorf("expected string in queue, but got %T", obj))
 		// this is a bad entry, we don't want to reprocess
 		wq.queue.Forget(obj)
 		return true
 	}
 
 	if err := wq.SyncHandler(key); err != nil {
+		// Conflicts are expected, so only show them in debug operations.
+		if k8serror.IsConflict(errors.Cause(err)) {
+			wq.logger.WithField(wq.keyName, obj).Debug(err)
+		} else {
+			runtime.HandleError(wq.logger.WithField(wq.keyName, obj), err)
+		}
+
 		// we don't forget here, because we want this to be retried via the queue
-		runtime.HandleError(wq.logger.WithField("obj", obj), err)
 		wq.queue.AddRateLimited(obj)
 		return true
 	}

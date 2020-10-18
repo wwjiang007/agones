@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2017 Google LLC All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,16 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: "stable.agones.dev/v1alpha1"
+apiVersion: "agones.dev/v1"
 kind: GameServer
 metadata:
   name: "xonotic"
 spec:
-  portPolicy: "dynamic"
-  containerPort: 26000
+  ports:
+    - name: default
+      containerPort: 26000
   template:
     spec:
       containers:
       - name: xonotic
-        image: gcr.io/agones-images/xonotic-example:0.1
+        image: gcr.io/agones-images/xonotic-example:0.8
         # imagePullPolicy: Always # add for development

@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2017 Google LLC All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,8 +27,8 @@ REPOSITORY = gcr.io/agones-images
 
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 project_path := $(dir $(mkfile_path))
-agones_path := $(realpath $(project_path)/../..)
-image_tag = $(REPOSITORY)/xonotic-example:0.1
+root_path := $(realpath $(project_path)/../..)
+image_tag = $(REPOSITORY)/xonotic-example:0.8
 
 #   _____                    _
 #  |_   _|_ _ _ __ __ _  ___| |_ ___
@@ -38,14 +38,9 @@ image_tag = $(REPOSITORY)/xonotic-example:0.1
 #                 |___/
 
 # Build a docker image for the server, and tag it
-build: build-go-binary
-	docker build $(project_path) --tag=$(image_tag)
+build:
+	cd $(root_path) && docker build -f $(project_path)/Dockerfile --tag=$(image_tag) .
 
-# build the go binary with Docker, so you don't have to install anything
-build-go-binary: MOUNTPATH="/go/src/agones.dev/agones"
-build-go-binary:
-	docker run --rm -v $(agones_path):$(MOUNTPATH) golang:1.9.4 go build -o $(MOUNTPATH)/examples/xonotic/bin/sdk agones.dev/agones/examples/xonotic
-
-
-
-
+# check if hosted on Google Cloud Registry
+gcr-check:
+	gcloud container images describe $(image_tag)

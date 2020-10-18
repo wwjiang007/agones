@@ -1,4 +1,4 @@
-// Copyright 2018 Google Inc. All Rights Reserved.
+// Copyright 2018 Google LLC All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,22 +23,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/admission/v1beta1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
-
-// Server is a http server interface to enable easier testing
-type Server interface {
-	Close() error
-	ListenAndServeTLS(certFile, keyFile string) error
-}
 
 // WebHook manage Kubernetes webhooks
 type WebHook struct {
 	logger   *logrus.Entry
 	mux      *http.ServeMux
-	server   Server
-	certFile string
-	keyFile  string
 	handlers map[string][]operationHandler
 }
 
@@ -54,42 +46,14 @@ type operationHandler struct {
 type Handler func(review v1beta1.AdmissionReview) (v1beta1.AdmissionReview, error)
 
 // NewWebHook returns a Kubernetes webhook manager
-func NewWebHook(certFile, keyFile string) *WebHook {
-	mux := http.NewServeMux()
-	server := http.Server{
-		Addr:    ":8081",
-		Handler: mux,
-	}
-
+func NewWebHook(mux *http.ServeMux) *WebHook {
 	wh := &WebHook{
 		mux:      mux,
-		server:   &server,
-		certFile: certFile,
-		keyFile:  keyFile,
 		handlers: map[string][]operationHandler{},
 	}
+
 	wh.logger = runtime.NewLoggerWithType(wh)
-
 	return wh
-}
-
-// Run runs the webhook server, starting a https listener.
-// Will block on stop channel
-func (wh *WebHook) Run(stop <-chan struct{}) error {
-	go func() {
-		<-stop
-		wh.server.Close() // nolint: errcheck
-	}()
-
-	wh.logger.WithField("webook", wh).Infof("https server started")
-
-	err := wh.server.ListenAndServeTLS(wh.certFile, wh.keyFile)
-	if err == http.ErrServerClosed {
-		wh.logger.WithError(err).Info("https server closed")
-		return nil
-	}
-
-	return errors.Wrap(err, "Could not listen on :8081")
 }
 
 // AddHandler adds a handler for a given path, group and kind, and operation
@@ -109,7 +73,7 @@ func (wh *WebHook) AddHandler(path string, gk schema.GroupKind, op v1beta1.Opera
 
 // handle Handles http requests for webhooks
 func (wh *WebHook) handle(path string, w http.ResponseWriter, r *http.Request) error { // nolint: interfacer
-	wh.logger.WithField("path", path).Info("running webhook")
+	wh.logger.WithField("path", path).Debug("running webhook")
 
 	var review v1beta1.AdmissionReview
 	err := json.NewDecoder(r.Body).Decode(&review)
@@ -128,7 +92,20 @@ func (wh *WebHook) handle(path string, w http.ResponseWriter, r *http.Request) e
 
 			review, err = oh.handler(review)
 			if err != nil {
-				return errors.Wrapf(err, "error with webhook handler for path %v", path)
+				causes := make([]metav1.StatusCause, 0)
+				review.Response.Allowed = false
+				details := metav1.StatusDetails{
+					Name:   review.Request.Name,
+					Group:  review.Request.Kind.Group,
+					Kind:   review.Request.Kind.Kind,
+					Causes: causes,
+				}
+				review.Response.Result = &metav1.Status{
+					Status:  metav1.StatusFailure,
+					Message: err.Error(),
+					Reason:  metav1.StatusReasonInvalid,
+					Details: &details,
+				}
 			}
 		}
 	}
